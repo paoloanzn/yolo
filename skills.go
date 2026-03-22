@@ -58,26 +58,21 @@ func skillDisplayName(filename string) string {
 	return strings.TrimSuffix(filename, ext)
 }
 
-// createConfigOverride creates a shadow of ~/.claude that symlinks everything
-// except the skills/ directory. Only the selected skills are symlinked into the
-// shadow skills/ dir. Returns the temp dir path to be used as CLAUDE_CONFIG_DIR.
-func createConfigOverride(selectedPaths []string) (string, error) {
+// createConfigOverride creates a shadow of the given Claude config directory
+// that symlinks everything except the skills/ directory. Only the selected
+// skills are symlinked into the shadow skills/ dir. Returns the temp dir path
+// to be used as CLAUDE_CONFIG_DIR.
+func createConfigOverride(claudeDir string, selectedPaths []string) (string, error) {
 	if len(selectedPaths) == 0 {
 		return "", nil
 	}
-
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get home dir: %w", err)
-	}
-	claudeDir := filepath.Join(homeDir, ".claude")
 
 	tmpDir, err := os.MkdirTemp("", "yolo-claude-config-*")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp config dir: %w", err)
 	}
 
-	// Symlink everything from ~/.claude/ except skills/
+	// Symlink everything from the claude config dir except skills/
 	entries, err := os.ReadDir(claudeDir)
 	if err != nil {
 		return "", fmt.Errorf("failed to read %s: %w", claudeDir, err)
@@ -109,6 +104,12 @@ func createConfigOverride(selectedPaths []string) (string, error) {
 	}
 
 	return tmpDir, nil
+}
+
+// defaultClaudeDir returns the path to ~/.claude.
+func defaultClaudeDir() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".claude")
 }
 
 func expandHome(path string) string {
