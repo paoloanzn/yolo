@@ -45,8 +45,20 @@ func main() {
 	}
 
 	args := buildCommand(cfg, sel)
+
+	// If skills were selected, create a config override so Claude only sees those skills
+	var configOverride string
+	if len(sel.SkillPaths) > 0 {
+		override, err := createConfigOverride(sel.SkillPaths)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not create config override: %v\n", err)
+		} else {
+			configOverride = override
+		}
+	}
+
 	printCommand(args)
-	launchClaude(args)
+	launchClaude(args, configOverride)
 }
 
 func runInit() error {
@@ -74,19 +86,35 @@ func runDryRun() error {
 		return fmt.Errorf("cancelled")
 	}
 	args := buildCommand(cfg, sel)
+	if len(sel.SkillPaths) > 0 {
+		fmt.Println("CLAUDE_CONFIG_DIR=<temp-shadow-dir> \\")
+	}
 	fmt.Println(strings.Join(args, " "))
 	return nil
 }
 
-func launchClaude(args []string) {
+func launchClaude(args []string, configOverride string) {
 	binary, err := exec.LookPath(args[0])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: claude not found in PATH\n")
 		os.Exit(1)
 	}
 
+	env := os.Environ()
+	if configOverride != "" {
+		// Filter out any existing CLAUDE_CONFIG_DIR and set our override
+		filtered := make([]string, 0, len(env)+1)
+		for _, e := range env {
+			if !strings.HasPrefix(e, "CLAUDE_CONFIG_DIR=") {
+				filtered = append(filtered, e)
+			}
+		}
+		filtered = append(filtered, "CLAUDE_CONFIG_DIR="+configOverride)
+		env = filtered
+	}
+
 	// Replace the current process with claude
-	if err := syscall.Exec(binary, args, os.Environ()); err != nil {
+	if err := syscall.Exec(binary, args, env); err != nil {
 		fmt.Fprintf(os.Stderr, "Error launching claude: %v\n", err)
 		os.Exit(1)
 	}

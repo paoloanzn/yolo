@@ -14,31 +14,40 @@ type Skill struct {
 	DirName string // name of the parent SkillDir (for grouping in the TUI)
 }
 
-// discoverSkills scans all configured skill directories and returns individual skill files.
+// discoverSkills scans all configured skill directories and returns individual skill entries.
 func discoverSkills(cfg *Config) ([]Skill, error) {
 	var skills []Skill
-
 	for _, sd := range cfg.SkillDirs {
-		dirPath := expandHome(sd.Path)
-		entries, err := os.ReadDir(dirPath)
+		found, err := discoverSkillsInDir(sd)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not read skill dir %s: %v\n", dirPath, err)
+			fmt.Fprintf(os.Stderr, "Warning: could not read skill dir %s: %v\n", sd.Path, err)
 			continue
 		}
+		skills = append(skills, found...)
+	}
+	return skills, nil
+}
 
-		for _, entry := range entries {
-			if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
-				continue
-			}
-			absPath := filepath.Join(dirPath, entry.Name())
-			skills = append(skills, Skill{
-				Name:    skillDisplayName(entry.Name()),
-				Path:    absPath,
-				DirName: sd.Name,
-			})
-		}
+// discoverSkillsInDir scans a single skill directory and returns individual skills.
+func discoverSkillsInDir(sd SkillDir) ([]Skill, error) {
+	dirPath := expandHome(sd.Path)
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return nil, err
 	}
 
+	var skills []Skill
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		absPath := filepath.Join(dirPath, entry.Name())
+		skills = append(skills, Skill{
+			Name:    skillDisplayName(entry.Name()),
+			Path:    absPath,
+			DirName: sd.Name,
+		})
+	}
 	return skills, nil
 }
 
@@ -49,24 +58,53 @@ func skillDisplayName(filename string) string {
 	return strings.TrimSuffix(filename, ext)
 }
 
-// createSkillTempDir creates a temporary directory containing symlinks to the selected skill files.
-// Returns the temp dir path. The caller (claude process) will inherit it and it'll be
-// cleaned up when the OS cleans temp files.
-func createSkillTempDir(selectedPaths []string) (string, error) {
+// createConfigOverride creates a shadow of ~/.claude that symlinks everything
+// except the skills/ directory. Only the selected skills are symlinked into the
+// shadow skills/ dir. Returns the temp dir path to be used as CLAUDE_CONFIG_DIR.
+func createConfigOverride(selectedPaths []string) (string, error) {
 	if len(selectedPaths) == 0 {
 		return "", nil
 	}
 
-	tmpDir, err := os.MkdirTemp("", "yolo-skills-*")
+	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("failed to create temp skill dir: %w", err)
+		return "", fmt.Errorf("failed to get home dir: %w", err)
+	}
+	claudeDir := filepath.Join(homeDir, ".claude")
+
+	tmpDir, err := os.MkdirTemp("", "yolo-claude-config-*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp config dir: %w", err)
+	}
+
+	// Symlink everything from ~/.claude/ except skills/
+	entries, err := os.ReadDir(claudeDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to read %s: %w", claudeDir, err)
+	}
+
+	for _, entry := range entries {
+		if entry.Name() == "skills" {
+			continue
+		}
+		src := filepath.Join(claudeDir, entry.Name())
+		dst := filepath.Join(tmpDir, entry.Name())
+		if err := os.Symlink(src, dst); err != nil {
+			return "", fmt.Errorf("failed to symlink %s: %w", src, err)
+		}
+	}
+
+	// Create skills/ with only the selected skills
+	skillsDir := filepath.Join(tmpDir, "skills")
+	if err := os.MkdirAll(skillsDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create skills dir: %w", err)
 	}
 
 	for _, srcPath := range selectedPaths {
-		filename := filepath.Base(srcPath)
-		dstPath := filepath.Join(tmpDir, filename)
-		if err := os.Symlink(srcPath, dstPath); err != nil {
-			return "", fmt.Errorf("failed to symlink %s: %w", srcPath, err)
+		name := filepath.Base(srcPath)
+		dst := filepath.Join(skillsDir, name)
+		if err := os.Symlink(srcPath, dst); err != nil {
+			return "", fmt.Errorf("failed to symlink skill %s: %w", srcPath, err)
 		}
 	}
 
