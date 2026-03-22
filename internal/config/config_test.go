@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"os"
@@ -8,7 +8,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func TestLoadConfig_ValidYAML(t *testing.T) {
+func TestLoad_ValidYAML(t *testing.T) {
 	configYAML := `
 defaults:
   permission_mode: bypassPermissions
@@ -57,7 +57,6 @@ presets:
 		t.Fatalf("failed to parse valid config: %v", err)
 	}
 
-	// Defaults
 	if cfg.Defaults.PermissionMode != "bypassPermissions" {
 		t.Errorf("expected permission_mode bypassPermissions, got %q", cfg.Defaults.PermissionMode)
 	}
@@ -68,7 +67,6 @@ presets:
 		t.Errorf("expected effort high, got %q", cfg.Defaults.Effort)
 	}
 
-	// System prompts
 	if len(cfg.SystemPrompts) != 2 {
 		t.Fatalf("expected 2 system prompts, got %d", len(cfg.SystemPrompts))
 	}
@@ -79,7 +77,6 @@ presets:
 		t.Errorf("expected file prompt path, got %q", cfg.SystemPrompts[1].File)
 	}
 
-	// Skill dirs
 	if len(cfg.SkillDirs) != 2 {
 		t.Fatalf("expected 2 skill dirs, got %d", len(cfg.SkillDirs))
 	}
@@ -87,17 +84,14 @@ presets:
 		t.Errorf("unexpected skill dir: %+v", cfg.SkillDirs[0])
 	}
 
-	// MCP configs
 	if len(cfg.MCPConfigs) != 1 || cfg.MCPConfigs[0].Name != "Local MCP" {
 		t.Errorf("unexpected mcp configs: %+v", cfg.MCPConfigs)
 	}
 
-	// Agents
 	if len(cfg.Agents) != 1 || cfg.Agents[0].Name != "Reviewer" {
 		t.Errorf("unexpected agents: %+v", cfg.Agents)
 	}
 
-	// Presets
 	if len(cfg.Presets) != 1 {
 		t.Fatalf("expected 1 preset, got %d", len(cfg.Presets))
 	}
@@ -116,7 +110,7 @@ presets:
 	}
 }
 
-func TestLoadConfig_EmptyDefaults(t *testing.T) {
+func TestLoad_EmptyDefaults(t *testing.T) {
 	configYAML := `
 system_prompts: []
 skill_dirs: []
@@ -133,7 +127,7 @@ presets: []
 
 func TestResolvePromptText_InlineText(t *testing.T) {
 	sp := SystemPrompt{Name: "test", Text: "hello world"}
-	text, err := resolvePromptText(sp)
+	text, err := ResolvePromptText(sp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +144,7 @@ func TestResolvePromptText_FromFile(t *testing.T) {
 	}
 
 	sp := SystemPrompt{Name: "test", File: promptFile}
-	text, err := resolvePromptText(sp)
+	text, err := ResolvePromptText(sp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +155,7 @@ func TestResolvePromptText_FromFile(t *testing.T) {
 
 func TestResolvePromptText_MissingFile(t *testing.T) {
 	sp := SystemPrompt{Name: "test", File: "/nonexistent/prompt.md"}
-	_, err := resolvePromptText(sp)
+	_, err := ResolvePromptText(sp)
 	if err == nil {
 		t.Error("expected error for missing file")
 	}
@@ -169,7 +163,7 @@ func TestResolvePromptText_MissingFile(t *testing.T) {
 
 func TestResolvePromptText_Empty(t *testing.T) {
 	sp := SystemPrompt{Name: "test"}
-	text, err := resolvePromptText(sp)
+	text, err := ResolvePromptText(sp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,11 +174,32 @@ func TestResolvePromptText_Empty(t *testing.T) {
 
 func TestResolvePromptText_TextTakesPrecedence(t *testing.T) {
 	sp := SystemPrompt{Name: "test", Text: "inline", File: "/some/file"}
-	text, err := resolvePromptText(sp)
+	text, err := ResolvePromptText(sp)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if text != "inline" {
 		t.Errorf("expected inline text to take precedence, got %q", text)
+	}
+}
+
+func TestExpandHome(t *testing.T) {
+	home, _ := os.UserHomeDir()
+
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"~/foo/bar", filepath.Join(home, "foo/bar")},
+		{"~/.claude/skills", filepath.Join(home, ".claude/skills")},
+		{"/absolute/path", "/absolute/path"},
+		{"relative/path", "relative/path"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := ExpandHome(tt.input)
+		if got != tt.want {
+			t.Errorf("ExpandHome(%q) = %q, want %q", tt.input, got, tt.want)
+		}
 	}
 }

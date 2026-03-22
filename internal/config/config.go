@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"fmt"
@@ -57,17 +57,17 @@ type Config struct {
 	Presets       []Preset       `yaml:"presets"`
 }
 
-func configDir() string {
+func Dir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".yolo")
 }
 
-func configPath() string {
-	return filepath.Join(configDir(), "config.yaml")
+func Path() string {
+	return filepath.Join(Dir(), "config.yaml")
 }
 
-func loadConfig() (*Config, error) {
-	path := configPath()
+func Load() (*Config, error) {
+	path := Path()
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -83,12 +83,12 @@ func loadConfig() (*Config, error) {
 	return &cfg, nil
 }
 
-func resolvePromptText(sp SystemPrompt) (string, error) {
+func ResolvePromptText(sp SystemPrompt) (string, error) {
 	if sp.Text != "" {
 		return sp.Text, nil
 	}
 	if sp.File != "" {
-		path := expandHome(sp.File)
+		path := ExpandHome(sp.File)
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return "", fmt.Errorf("failed to read prompt file %s: %w", path, err)
@@ -98,8 +98,8 @@ func resolvePromptText(sp SystemPrompt) (string, error) {
 	return "", nil
 }
 
-func writeDefaultConfig() error {
-	dir := configDir()
+func WriteDefault() error {
+	dir := Dir()
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
@@ -153,5 +153,13 @@ presets:
     append_prompt: "Start by understanding the full scope of what needs to be done before writing any code."
 `
 
-	return os.WriteFile(configPath(), []byte(defaultConfig), 0644)
+	return os.WriteFile(Path(), []byte(defaultConfig), 0644)
+}
+
+func ExpandHome(path string) string {
+	if len(path) > 0 && path[0] == '~' {
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, path[1:])
+	}
+	return path
 }
