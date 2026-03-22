@@ -49,7 +49,7 @@ func main() {
 	// If skills were selected, create a config override so Claude only sees those skills
 	var configOverride string
 	if len(sel.SkillPaths) > 0 {
-		override, err := createConfigOverride(sel.SkillPaths)
+		override, err := createConfigOverride(defaultClaudeDir(), sel.SkillPaths)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not create config override: %v\n", err)
 		} else {

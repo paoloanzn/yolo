@@ -10,12 +10,15 @@ else
   INSTALL_DIR := $(HOME)/bin
 endif
 
-.PHONY: build install uninstall clean init
+.PHONY: build test install uninstall clean init
 
 build: $(BINARY)
 
 $(BINARY): $(SRC) go.mod go.sum
 	go build -o $(BINARY) .
+
+test:
+	go test ./... -v -count=1
 
 install: $(BINARY)
 	@mkdir -p $(INSTALL_DIR)
