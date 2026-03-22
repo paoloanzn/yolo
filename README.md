@@ -33,7 +33,7 @@ cd yolo
 make install   # builds and copies to ~/.local/bin
 ```
 
-Requires Go 1.21+ and `claude` in your PATH.
+Requires Go 1.25+ and `claude` in your PATH.
 
 ## Setup
 
@@ -52,6 +52,18 @@ Edit `~/.yolo/config.yaml` to add your system prompts, skill directories, preset
 | `yolo dry-run` | Same TUI but only prints the command |
 | `yolo config` | Print config file path |
 | `yolo help` | Usage info |
+
+## Project structure
+
+```
+cmd/yolo/main.go              — entry point, CLI dispatch
+internal/
+  config/config.go            — types, YAML loading, prompt resolution
+  skill/skill.go              — skill discovery (files, folders, symlinks)
+  skill/shadow.go             — shadow config dir for skill isolation
+  command/command.go           — Selections type, CLI arg building
+  tui/tui.go                  — interactive TUI form, styled output
+```
 
 ## License
 
