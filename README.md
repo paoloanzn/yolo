@@ -27,13 +27,21 @@ You can also define **presets** for one-click launch (e.g. "YOLO mode", "Planner
 
 ## Install
 
+One-liner (downloads the latest release for your platform):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/paoloanzn/yolo/main/install.sh | sh
+```
+
+Or build from source:
+
 ```bash
 git clone https://github.com/paoloanzn/yolo.git
 cd yolo
 make install   # builds and copies to ~/.local/bin
 ```
 
-Requires Go 1.25+ and `claude` in your PATH.
+Requires `claude` in your PATH. Building from source requires Go 1.25+.
 
 ## Setup
 
