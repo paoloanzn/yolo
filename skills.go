@@ -27,7 +27,7 @@ func discoverSkills(cfg *Config) ([]Skill, error) {
 		}
 
 		for _, entry := range entries {
-			if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			if strings.HasPrefix(entry.Name(), ".") {
 				continue
 			}
 			absPath := filepath.Join(dirPath, entry.Name())
