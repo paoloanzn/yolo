@@ -6,6 +6,11 @@ import (
 	"os/exec"
 	"strings"
 	"syscall"
+
+	"github.com/paolo/yolo/internal/command"
+	"github.com/paolo/yolo/internal/config"
+	"github.com/paolo/yolo/internal/skill"
+	"github.com/paolo/yolo/internal/tui"
 )
 
 func main() {
@@ -18,7 +23,7 @@ func main() {
 			}
 			return
 		case "config":
-			fmt.Println(configPath())
+			fmt.Println(config.Path())
 			return
 		case "dry-run":
 			if err := runDryRun(); err != nil {
@@ -32,24 +37,23 @@ func main() {
 		}
 	}
 
-	cfg, err := loadConfig()
+	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	sel, err := runTUI(cfg)
+	sel, err := tui.Run(cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Cancelled.\n")
 		os.Exit(0)
 	}
 
-	args := buildCommand(cfg, sel)
+	args := command.Build(cfg, sel)
 
-	// If skills were selected, create a config override so Claude only sees those skills
 	var configOverride string
 	if len(sel.SkillPaths) > 0 {
-		override, err := createConfigOverride(defaultClaudeDir(), sel.SkillPaths)
+		override, err := skill.CreateConfigOverride(skill.DefaultClaudeDir(), sel.SkillPaths)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not create config override: %v\n", err)
 		} else {
@@ -57,18 +61,18 @@ func main() {
 		}
 	}
 
-	printCommand(args)
+	tui.PrintCommand(args)
 	launchClaude(args, configOverride)
 }
 
 func runInit() error {
-	path := configPath()
+	path := config.Path()
 	if _, err := os.Stat(path); err == nil {
 		fmt.Printf("Config already exists at %s\n", path)
 		fmt.Println("Delete it first if you want to regenerate.")
 		return nil
 	}
-	if err := writeDefaultConfig(); err != nil {
+	if err := config.WriteDefault(); err != nil {
 		return err
 	}
 	fmt.Printf("Config created at %s\n", path)
@@ -77,15 +81,15 @@ func runInit() error {
 }
 
 func runDryRun() error {
-	cfg, err := loadConfig()
+	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
-	sel, err := runTUI(cfg)
+	sel, err := tui.Run(cfg)
 	if err != nil {
 		return fmt.Errorf("cancelled")
 	}
-	args := buildCommand(cfg, sel)
+	args := command.Build(cfg, sel)
 	if len(sel.SkillPaths) > 0 {
 		fmt.Println("CLAUDE_CONFIG_DIR=<temp-shadow-dir> \\")
 	}
@@ -102,7 +106,6 @@ func launchClaude(args []string, configOverride string) {
 
 	env := os.Environ()
 	if configOverride != "" {
-		// Filter out any existing CLAUDE_CONFIG_DIR and set our override
 		filtered := make([]string, 0, len(env)+1)
 		for _, e := range env {
 			if !strings.HasPrefix(e, "CLAUDE_CONFIG_DIR=") {
@@ -113,7 +116,6 @@ func launchClaude(args []string, configOverride string) {
 		env = filtered
 	}
 
-	// Replace the current process with claude
 	if err := syscall.Exec(binary, args, env); err != nil {
 		fmt.Fprintf(os.Stderr, "Error launching claude: %v\n", err)
 		os.Exit(1)
