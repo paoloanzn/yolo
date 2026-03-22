@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/huh"
@@ -16,7 +17,7 @@ type Selections struct {
 	PermissionMode string
 	Model          string
 	Effort         string
-	SkillDirs      []string
+	SkillPaths     []string // individual skill file paths
 	MCPConfigs     []string
 	Agent          string
 	AddDirs        string
@@ -144,20 +145,24 @@ func runTUI(cfg *Config) (*Selections, error) {
 	sel.Model = modelDefault
 	sel.Effort = effortDefault
 
-	// Group 2: Skill dirs (if any configured)
+	// Group 2: Individual skills from configured directories
 	if len(cfg.SkillDirs) > 0 {
-		skillOptions := make([]huh.Option[string], 0, len(cfg.SkillDirs))
-		for _, sd := range cfg.SkillDirs {
-			skillOptions = append(skillOptions, huh.NewOption(sd.Name, sd.Path))
+		skills, _ := discoverSkills(cfg)
+		if len(skills) > 0 {
+			skillOptions := make([]huh.Option[string], 0, len(skills))
+			for _, sk := range skills {
+				label := fmt.Sprintf("[%s] %s", sk.DirName, sk.Name)
+				skillOptions = append(skillOptions, huh.NewOption(label, sk.Path))
+			}
+			groups = append(groups, huh.NewGroup(
+				huh.NewNote().Title("Skills & Plugins"),
+				huh.NewMultiSelect[string]().
+					Title("Skills").
+					Description("Select individual skills to load").
+					Options(skillOptions...).
+					Value(&sel.SkillPaths),
+			))
 		}
-		groups = append(groups, huh.NewGroup(
-			huh.NewNote().Title("Skills & Plugins"),
-			huh.NewMultiSelect[string]().
-				Title("Skill Directories").
-				Description("Select skill directories to load").
-				Options(skillOptions...).
-				Value(&sel.SkillDirs),
-		))
 	}
 
 	// Group 3: MCP configs (if any configured)
@@ -264,9 +269,14 @@ func buildCommand(cfg *Config, sel *Selections) []string {
 		args = append(args, "--effort", sel.Effort)
 	}
 
-	// Skill dirs
-	for _, dir := range sel.SkillDirs {
-		args = append(args, "--plugin-dir", dir)
+	// Skills: symlink selected files into a temp dir
+	if len(sel.SkillPaths) > 0 {
+		tmpDir, err := createSkillTempDir(sel.SkillPaths)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not create skill temp dir: %v\n", err)
+		} else if tmpDir != "" {
+			args = append(args, "--plugin-dir", tmpDir)
+		}
 	}
 
 	// MCP configs

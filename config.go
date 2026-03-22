@@ -88,11 +88,7 @@ func resolvePromptText(sp SystemPrompt) (string, error) {
 		return sp.Text, nil
 	}
 	if sp.File != "" {
-		path := sp.File
-		if path[0] == '~' {
-			home, _ := os.UserHomeDir()
-			path = filepath.Join(home, path[1:])
-		}
+		path := expandHome(sp.File)
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return "", fmt.Errorf("failed to read prompt file %s: %w", path, err)
