@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/charmbracelet/huh"
@@ -230,7 +229,7 @@ func buildCommand(cfg *Config, sel *Selections) []string {
 	if sel.UsePreset {
 		for _, p := range cfg.Presets {
 			if p.Name == sel.PresetName {
-				return buildPresetCommand(cfg, &p)
+				return buildPresetCommand(cfg, &p, sel)
 			}
 		}
 		return args
@@ -269,15 +268,7 @@ func buildCommand(cfg *Config, sel *Selections) []string {
 		args = append(args, "--effort", sel.Effort)
 	}
 
-	// Skills: symlink selected files into a temp dir
-	if len(sel.SkillPaths) > 0 {
-		tmpDir, err := createSkillTempDir(sel.SkillPaths)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not create skill temp dir: %v\n", err)
-		} else if tmpDir != "" {
-			args = append(args, "--plugin-dir", tmpDir)
-		}
-	}
+	// Skills are handled via CLAUDE_CONFIG_DIR override in launchClaude
 
 	// MCP configs
 	for _, mc := range sel.MCPConfigs {
@@ -311,7 +302,7 @@ func buildCommand(cfg *Config, sel *Selections) []string {
 	return args
 }
 
-func buildPresetCommand(cfg *Config, p *Preset) []string {
+func buildPresetCommand(cfg *Config, p *Preset, sel *Selections) []string {
 	args := []string{"claude"}
 
 	if p.PermissionMode != "" {
@@ -342,10 +333,14 @@ func buildPresetCommand(cfg *Config, p *Preset) []string {
 		args = append(args, "--effort", p.Effort)
 	}
 
+	// Resolve preset skill dirs into individual skill paths for config override
 	for _, sdName := range p.SkillDirs {
 		for _, sd := range cfg.SkillDirs {
 			if sd.Name == sdName {
-				args = append(args, "--plugin-dir", sd.Path)
+				skills, _ := discoverSkillsInDir(sd)
+				for _, sk := range skills {
+					sel.SkillPaths = append(sel.SkillPaths, sk.Path)
+				}
 				break
 			}
 		}
