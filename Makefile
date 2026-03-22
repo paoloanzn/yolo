@@ -1,5 +1,4 @@
 BINARY := yolo
-SRC := $(wildcard *.go)
 
 # Discover user-local bin: prefer ~/.local/bin (XDG), fall back to ~/bin
 ifeq ($(shell uname),Darwin)
@@ -12,15 +11,13 @@ endif
 
 .PHONY: build test install uninstall clean init
 
-build: $(BINARY)
-
-$(BINARY): $(SRC) go.mod go.sum
-	go build -o $(BINARY) .
+build:
+	go build -o $(BINARY) ./cmd/yolo
 
 test:
 	go test ./... -v -count=1
 
-install: $(BINARY)
+install: build
 	@mkdir -p $(INSTALL_DIR)
 	cp $(BINARY) $(INSTALL_DIR)/$(BINARY)
 	@echo "Installed to $(INSTALL_DIR)/$(BINARY)"

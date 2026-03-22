@@ -1,4 +1,4 @@
-package main
+package tui
 
 import (
 	"fmt"
@@ -6,36 +6,15 @@ import (
 
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/paolo/yolo/internal/command"
+	"github.com/paolo/yolo/internal/config"
+	"github.com/paolo/yolo/internal/skill"
 )
 
-type Selections struct {
-	UsePreset      bool
-	PresetName     string
-	SystemPrompt   string
-	AppendPrompt   string
-	PermissionMode string
-	Model          string
-	Effort         string
-	SkillPaths     []string // individual skill file paths
-	MCPConfigs     []string
-	Agent          string
-	AddDirs        string
-	ExtraFlags     string
-}
-
-var (
-	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#FF6600")).
-			MarginBottom(1)
-
-	subtitleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#888888")).
-			Italic(true)
-)
-
-func runTUI(cfg *Config) (*Selections, error) {
-	sel := &Selections{}
+// Run presents the interactive TUI and returns user selections.
+func Run(cfg *config.Config) (*command.Selections, error) {
+	sel := &command.Selections{}
 
 	// Phase 1: Ask if user wants a preset or custom config
 	hasPresets := len(cfg.Presets) > 0
@@ -73,7 +52,6 @@ func runTUI(cfg *Config) (*Selections, error) {
 	}
 
 	// Phase 2: Custom configuration
-	// System prompt selection
 	promptOptions := make([]huh.Option[string], 0, len(cfg.SystemPrompts))
 	for _, sp := range cfg.SystemPrompts {
 		promptOptions = append(promptOptions, huh.NewOption(sp.Name, sp.Name))
@@ -82,17 +60,10 @@ func runTUI(cfg *Config) (*Selections, error) {
 		promptOptions = append(promptOptions, huh.NewOption("Default (no override)", ""))
 	}
 
-	// Permission mode
 	permDefault := cfg.Defaults.PermissionMode
 	if permDefault == "" {
 		permDefault = "bypassPermissions"
 	}
-
-	// Model
-	modelDefault := cfg.Defaults.Model
-
-	// Effort
-	effortDefault := cfg.Defaults.Effort
 
 	groups := []*huh.Group{}
 
@@ -141,12 +112,12 @@ func runTUI(cfg *Config) (*Selections, error) {
 
 	// Set defaults
 	sel.PermissionMode = permDefault
-	sel.Model = modelDefault
-	sel.Effort = effortDefault
+	sel.Model = cfg.Defaults.Model
+	sel.Effort = cfg.Defaults.Effort
 
 	// Group 2: Individual skills from configured directories
 	if len(cfg.SkillDirs) > 0 {
-		skills, _ := discoverSkills(cfg)
+		skills, _ := skill.DiscoverAll(cfg)
 		if len(skills) > 0 {
 			skillOptions := make([]huh.Option[string], 0, len(skills))
 			for _, sk := range skills {
@@ -164,7 +135,7 @@ func runTUI(cfg *Config) (*Selections, error) {
 		}
 	}
 
-	// Group 3: MCP configs (if any configured)
+	// Group 3: MCP configs
 	if len(cfg.MCPConfigs) > 0 {
 		mcpOptions := make([]huh.Option[string], 0, len(cfg.MCPConfigs))
 		for _, mc := range cfg.MCPConfigs {
@@ -180,7 +151,7 @@ func runTUI(cfg *Config) (*Selections, error) {
 		))
 	}
 
-	// Group 4: Agents (if any configured)
+	// Group 4: Agents
 	if len(cfg.Agents) > 0 {
 		agentOptions := []huh.Option[string]{
 			huh.NewOption("None", ""),
@@ -223,161 +194,8 @@ func runTUI(cfg *Config) (*Selections, error) {
 	return sel, nil
 }
 
-func buildCommand(cfg *Config, sel *Selections) []string {
-	args := []string{"claude"}
-
-	if sel.UsePreset {
-		for _, p := range cfg.Presets {
-			if p.Name == sel.PresetName {
-				return buildPresetCommand(cfg, &p, sel)
-			}
-		}
-		return args
-	}
-
-	// Permission mode
-	if sel.PermissionMode != "" {
-		args = append(args, "--permission-mode", sel.PermissionMode)
-	}
-
-	// System prompt
-	if sel.SystemPrompt != "" {
-		for _, sp := range cfg.SystemPrompts {
-			if sp.Name == sel.SystemPrompt {
-				text, err := resolvePromptText(sp)
-				if err == nil && text != "" {
-					args = append(args, "--system-prompt", text)
-				}
-				break
-			}
-		}
-	}
-
-	// Append prompt
-	if sel.AppendPrompt != "" {
-		args = append(args, "--append-system-prompt", sel.AppendPrompt)
-	}
-
-	// Model
-	if sel.Model != "" {
-		args = append(args, "--model", sel.Model)
-	}
-
-	// Effort
-	if sel.Effort != "" {
-		args = append(args, "--effort", sel.Effort)
-	}
-
-	// Skills are handled via CLAUDE_CONFIG_DIR override in launchClaude
-
-	// MCP configs
-	for _, mc := range sel.MCPConfigs {
-		args = append(args, "--mcp-config", mc)
-	}
-
-	// Agent
-	if sel.Agent != "" {
-		for _, a := range cfg.Agents {
-			if a.Name == sel.Agent {
-				args = append(args, "--agents", a.JSON)
-				break
-			}
-		}
-	}
-
-	// Add dirs
-	if sel.AddDirs != "" {
-		dirs := strings.Fields(sel.AddDirs)
-		for _, d := range dirs {
-			args = append(args, "--add-dir", d)
-		}
-	}
-
-	// Extra flags
-	if sel.ExtraFlags != "" {
-		flags := strings.Fields(sel.ExtraFlags)
-		args = append(args, flags...)
-	}
-
-	return args
-}
-
-func buildPresetCommand(cfg *Config, p *Preset, sel *Selections) []string {
-	args := []string{"claude"}
-
-	if p.PermissionMode != "" {
-		args = append(args, "--permission-mode", p.PermissionMode)
-	}
-
-	if p.SystemPrompt != "" {
-		for _, sp := range cfg.SystemPrompts {
-			if sp.Name == p.SystemPrompt {
-				text, err := resolvePromptText(sp)
-				if err == nil && text != "" {
-					args = append(args, "--system-prompt", text)
-				}
-				break
-			}
-		}
-	}
-
-	if p.AppendPrompt != "" {
-		args = append(args, "--append-system-prompt", p.AppendPrompt)
-	}
-
-	if p.Model != "" {
-		args = append(args, "--model", p.Model)
-	}
-
-	if p.Effort != "" {
-		args = append(args, "--effort", p.Effort)
-	}
-
-	// Resolve preset skill dirs into individual skill paths for config override
-	for _, sdName := range p.SkillDirs {
-		for _, sd := range cfg.SkillDirs {
-			if sd.Name == sdName {
-				skills, _ := discoverSkillsInDir(sd)
-				for _, sk := range skills {
-					sel.SkillPaths = append(sel.SkillPaths, sk.Path)
-				}
-				break
-			}
-		}
-	}
-
-	for _, mcName := range p.MCPConfigs {
-		for _, mc := range cfg.MCPConfigs {
-			if mc.Name == mcName {
-				args = append(args, "--mcp-config", mc.Path)
-				break
-			}
-		}
-	}
-
-	if p.Agent != "" {
-		for _, a := range cfg.Agents {
-			if a.Name == p.Agent {
-				args = append(args, "--agents", a.JSON)
-				break
-			}
-		}
-	}
-
-	for _, t := range p.AllowedTools {
-		args = append(args, "--allowed-tools", t)
-	}
-
-	for _, d := range p.AddDirs {
-		args = append(args, "--add-dir", d)
-	}
-
-	args = append(args, p.ExtraFlags...)
-
-	return args
-}
-
-func printCommand(args []string) {
+// PrintCommand displays the constructed command in styled output.
+func PrintCommand(args []string) {
 	fmt.Println()
 	cmdStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#00FF00")).
