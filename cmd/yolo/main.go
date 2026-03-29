@@ -4,18 +4,24 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
 	"github.com/paolo/yolo/internal/command"
 	"github.com/paolo/yolo/internal/config"
+	"github.com/paolo/yolo/internal/export"
 	"github.com/paolo/yolo/internal/skill"
 	"github.com/paolo/yolo/internal/tui"
 )
 
 func main() {
-	if len(os.Args) > 1 {
-		switch os.Args[1] {
+	// Extract --export-dir before subcommand dispatch
+	exportDir, args := export.ExtractExportDir(os.Args)
+
+	if len(args) > 1 {
+		switch args[1] {
 		case "init":
 			if err := runInit(); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -49,7 +55,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	args := command.Build(cfg, sel)
+	claudeArgs := command.Build(cfg, sel)
 
 	var configOverride string
 	if len(sel.SkillPaths) > 0 {
@@ -61,8 +67,28 @@ func main() {
 		}
 	}
 
-	tui.PrintCommand(args)
-	launchClaude(args, configOverride)
+	tui.PrintCommand(claudeArgs)
+
+	// Set up conversation export
+	cwd, _ := os.Getwd()
+	resolvedExportDir := export.ExportDir(exportDir)
+	exportFilename := export.SessionFilename()
+	exportPath := filepath.Join(resolvedExportDir, exportFilename)
+	projectDir := export.ProjectDir(cwd)
+
+	watcher := export.StartWatcher(projectDir, exportPath)
+
+	exitCode := launchClaude(claudeArgs, configOverride)
+
+	watcher.Stop()
+
+	if exportPath != "" {
+		if _, err := os.Stat(exportPath); err == nil {
+			fmt.Fprintf(os.Stderr, "\nConversation exported to %s\n", exportPath)
+		}
+	}
+
+	os.Exit(exitCode)
 }
 
 func runInit() error {
@@ -97,12 +123,19 @@ func runDryRun() error {
 	return nil
 }
 
-func launchClaude(args []string, configOverride string) {
+// launchClaude runs claude as a subprocess with full stdio passthrough.
+// Returns the exit code.
+func launchClaude(args []string, configOverride string) int {
 	binary, err := exec.LookPath(args[0])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: claude not found in PATH\n")
-		os.Exit(1)
+		return 1
 	}
+
+	cmd := exec.Command(binary, args[1:]...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 
 	env := os.Environ()
 	if configOverride != "" {
@@ -115,11 +148,37 @@ func launchClaude(args []string, configOverride string) {
 		filtered = append(filtered, "CLAUDE_CONFIG_DIR="+configOverride)
 		env = filtered
 	}
+	cmd.Env = env
 
-	if err := syscall.Exec(binary, args, env); err != nil {
+	// Ignore SIGINT in the parent — Claude handles it directly from the terminal.
+	// Forward SIGTERM so graceful shutdown propagates.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	if err := cmd.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error launching claude: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
+
+	go func() {
+		for sig := range sigCh {
+			if sig == syscall.SIGTERM {
+				cmd.Process.Signal(syscall.SIGTERM)
+			}
+			// SIGINT: ignore in parent, Claude gets it from terminal directly
+		}
+	}()
+
+	err = cmd.Wait()
+	signal.Stop(sigCh)
+
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return exitErr.ExitCode()
+		}
+		return 1
+	}
+	return 0
 }
 
 func printHelp() {
@@ -131,6 +190,15 @@ Usage:
   yolo config       Print the config file path
   yolo dry-run      Run the TUI but only print the command (don't launch)
   yolo help         Show this help
+
+Options:
+  --export-dir <path>  Custom directory for conversation exports
+                       (default: ~/.yolo/exports/)
+
+Conversation Export:
+  Every session automatically exports conversation data to ~/.yolo/exports/.
+  Each session gets its own file with a timestamped human-readable name
+  (e.g. 2026-03-29_12-04-00_bold-keen-fox.jsonl).
 
 Configuration:
   Edit ~/.yolo/config.yaml to customize:
