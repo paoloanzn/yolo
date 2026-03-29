@@ -14,6 +14,7 @@ func setupFakeClaudeDir(t *testing.T) string {
 
 	os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"theme":"dark"}`), 0644)
 	os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("# Instructions"), 0644)
+	os.WriteFile(dir+".json", []byte(`{"oauth":{"accessToken":"test-token"}}`), 0600)
 	os.MkdirAll(filepath.Join(dir, "plugins"), 0755)
 	os.MkdirAll(filepath.Join(dir, "sessions"), 0755)
 
@@ -59,6 +60,7 @@ func TestCreateConfigOverride_ShadowStructure(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(overrideDir)
+	defer os.Remove(overrideDir + ".json")
 
 	if _, err := os.Stat(overrideDir); err != nil {
 		t.Fatalf("override dir does not exist: %v", err)
@@ -79,6 +81,22 @@ func TestCreateConfigOverride_ShadowStructure(t *testing.T) {
 		if target != filepath.Join(fakeClaudeDir, name) {
 			t.Errorf("symlink %q -> %q, want -> %q", name, target, filepath.Join(fakeClaudeDir, name))
 		}
+	}
+
+	authShadowPath := overrideDir + ".json"
+	authInfo, err := os.Lstat(authShadowPath)
+	if err != nil {
+		t.Fatalf("expected auth file to exist next to shadow dir: %v", err)
+	}
+	if authInfo.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("expected auth file to be a symlink")
+	}
+	authTarget, err := os.Readlink(authShadowPath)
+	if err != nil {
+		t.Fatalf("failed to read auth symlink: %v", err)
+	}
+	if authTarget != fakeClaudeDir+".json" {
+		t.Fatalf("auth symlink -> %q, want -> %q", authTarget, fakeClaudeDir+".json")
 	}
 
 	// skills/ should exist as a real directory (not a symlink)
@@ -142,6 +160,7 @@ func TestCreateConfigOverride_NoDefaultSkillsLeak(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(overrideDir)
+	defer os.Remove(overrideDir + ".json")
 
 	shadowSkills, _ := os.ReadDir(filepath.Join(overrideDir, "skills"))
 	if len(shadowSkills) != 1 {

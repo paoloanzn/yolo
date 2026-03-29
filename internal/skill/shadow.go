@@ -43,6 +43,18 @@ func CreateConfigOverride(claudeDir string, selectedPaths []string) (string, err
 		}
 	}
 
+	// Claude auth is stored in a sibling file (e.g. ~/.claude.json), so mirror
+	// it next to the shadow dir as well when present.
+	authSrc := claudeDir + ".json"
+	if _, err := os.Stat(authSrc); err == nil {
+		authDst := tmpDir + ".json"
+		if err := os.Symlink(authSrc, authDst); err != nil {
+			return "", fmt.Errorf("failed to symlink %s: %w", authSrc, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("failed to stat %s: %w", authSrc, err)
+	}
+
 	// Create skills/ with only the selected skills
 	skillsDir := filepath.Join(tmpDir, "skills")
 	if err := os.MkdirAll(skillsDir, 0755); err != nil {
